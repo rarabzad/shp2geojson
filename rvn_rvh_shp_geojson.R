@@ -33,10 +33,10 @@ rvn_rvh_shp_geojson<-function(shpfile,
                               rvhfile,
                               outputfile=sprintf("%s/output.json",getwd()),
                               CRSshp=NA,
-						      matchingColumns=list(shpfile="subid",rvhfile="subid"),
-						      rvhColumns=list(SubId="sbid",DowSubId="downstream_id",rvhName="name",BasArea="area"),
-						      outletCoords=list(outletLat=NA,outletLng=NA),
-						      simplifyGeometry=TRUE)
+			      matchingColumns=list(shpfile="subid",rvhfile="subid"),
+			      rvhColumns=list(SubId="SBID",DowSubId="Downstream_ID",rvhName="Name",BasArea="Area"),							             
+			      outletCoords=list(outletLat=NA,outletLng=NA),
+			      simplifyGeometry=TRUE)
 {
    # loading libraries
    suppressPackageStartupMessages(library(geojsonio))
@@ -63,7 +63,6 @@ rvn_rvh_shp_geojson<-function(shpfile,
 
    # read rvh file 
    rvh<-rvn_rvh_read(rvhfile)
- 
    SubId<-rvhColumns$SubId
    DowSubId<-rvhColumns$DowSubId
    rvhName<-rvhColumns$rvhName
@@ -114,7 +113,7 @@ rvn_rvh_shp_geojson<-function(shpfile,
 	  if(is.na(rvhName)) stop("the provided rvhName doesn't exist and there is no similar column in the rvh$SBtable table!")
       warning("The provided DowSubId column label doesn't exist in the rvh file. The closest column is selected!")
    }
-   
+
    # matching a column from rvh file with a column from shp file
    id<-match(basins@data[,matchingColumns$shpfile],rvh$SBtable[,matchingColumns$rvhfile])
 
@@ -129,7 +128,7 @@ rvn_rvh_shp_geojson<-function(shpfile,
    redundants<-c(id1,id2,id3)
    redundants<-redundants[!is.na(redundants)]
    basins@data<-basins@data[,-redundants]
-   
+
    # copying matched subbasins charactristics from rvh file to shp file
    basins@data$rvhName <-rvh$SBtable[id,rvhName]     ; if(any(naIds)) basins@data$rvhName[naIds] <--9999
    basins@data$SubId   <-rvh$SBtable[id,SubId]       ; if(any(naIds)) basins@data$SubId[naIds]   <--9999
@@ -152,10 +151,10 @@ rvn_rvh_shp_geojson<-function(shpfile,
    }
    basins@data$outletLat<--9999
    basins@data$outletLng<--9999
-   outletId<-match(as.numeric(outletId),basins@data[,matchingColumns$shpfile])
+   outletId<-match(as.numeric(outletId),basins@data$SubId)
    basins@data$outletLat[outletId]<-outletLat
    basins@data$outletLng[outletId]<-outletLng
-   
+
    # creating geojson file
    basins_json <- geojson_json(basins)
    if (simplifyGeometry)
