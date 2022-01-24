@@ -57,7 +57,7 @@ rvn_rvh_shp_geojson<-function(shpfile,
    # reading shp file and its projection
    basins <- shapefile(shpfile)
    if(is.na(crs(basins)@projargs) & is.na(CRSshp)) stop("shapefile's CRS is unknown while CRSshp is missing")
-   if(is.na(crs(basins)@projargs)) crs(basins)@projargs<-CRSshp
+   if(is.na(crs(basins)@projargs)) crs(basins)<-CRSshp
    WGS<-crs("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84")
    basins<-spTransform(basins,CRSobj=WGS)
 
@@ -137,16 +137,24 @@ rvn_rvh_shp_geojson<-function(shpfile,
    basins@data$BasArea <-rvh$SBtable[id,BasArea]*10^6; if(any(naIds)) basins@data$BasArea[naIds] <--9999
 
    outletId<-rvh[[1]][which(rvh[[1]][,DowSubId]=="-1"),SubId]
+   if(length(outletId)>1)
+   {
+      warning("the provided rvh file contains a watershed with more than one outlets. The first matching one is selcted as the outlet!")
+	  outletId<-outletId[1]
+   }
    outletLat<- outletCoords$outletLat
    outletLng<- outletCoords$outletLng
    if(any(is.na(c(outletLat,outletLng))))
    {
 	  outletLat<-mean(rvh[[2]][rvh[[2]]$SBID==outletId,]$Latitude)
 	  outletLng<-mean(rvh[[2]][rvh[[2]]$SBID==outletId,]$Longitude)
-	  warning("Outlet coordinates were calculated by averaging the outlet subbasin HRU's coordinates")
+	  warning("Outlet coordinates were not provided. They were calculated by averaging the coordinates of HRUs within the outlet subbasin!")
    }
-   basins@data$outletLat<-outletLat
-   basins@data$outletLng<-outletLng
+   basins@data$outletLat<--9999
+   basins@data$outletLng<--9999
+   outletId<-match(as.numeric(outletId),basins@data[,matchingColumns$shpfile])
+   basins@data$outletLat[outletId]<-outletLat
+   basins@data$outletLng[outletId]<-outletLng
    
    # creating geojson file
    basins_json <- geojson_json(basins)
@@ -159,4 +167,3 @@ rvn_rvh_shp_geojson<-function(shpfile,
    geojson_write(basins_sim, file = outputfile)
    cat("Successfully Converted!\n")
 }
-
