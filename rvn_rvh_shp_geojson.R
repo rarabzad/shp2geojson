@@ -2,18 +2,17 @@
 #'
 #' @description
 #' This function compares a basin shapefile with it's Raven compliant rvh file. The function copies a 
-#' number of rvh file columns to the shapefile attribute table based on a \code{matchingColumns}. 
+#' number of rvh file columns to the shapefile attribute table based on a provided argument, \code{matchingColumns}. 
 #'
 #' @param shpfile the full path for the shapefile
 #' @param rvhfile the full path for the rvh file
 #' @param outputfile the full path for the geojson file to be created
 #' @param CRSshp (optional) coordinate system of \code{shpfile} if missing. Throws error if the \code{shpfile} coordinate system is missing and \code{CRSshp} has been left with default
 #' @param matchingColumns a list of matching columns in \code{shpfile} and \code{rvhfile}. The provided sublists must be labeled as \code{list(shpfile="",rvhfile="")}
-#' @param rvhColumns a list of column labels, i.e. \code{SubId}, \code{DowSubId}, \code{rvhName}, and \code{BasArea}. in the \code{rvhfile} to be copied from to the \code{shpfile} attribute table. The provided sublists must be labeld as \code{list(SubId="",DowSubId="",rvhName="",BasArea="")}
 #' @param outletCoords (optional) a list of longitude and latitude of the basin outlet. Must be provided in the GCS format and have to be labeld with the following format: \code{list(outletLat=NA,outletLng=NA)}
 #' @param simplifyGeometry (optional) Logical: to simplify the polygons in the geojson file or not. Default to \code{TRUE}
 #'
-#' @return a geojson file
+#' @returns a geojson file
 #'
 #' @seealso \code{\link{rvn_rvh_read}} to read rvh file
 #'
@@ -25,16 +24,13 @@
 #' shpfile<-"./test cases/Liard/subbasin_20180718.shp"
 #' rvhfile<-"./test cases/Liard/Liard.rvh"
 #' matchingColumns<-list(shpfile="Sub_B",rvhfile="Name")
-#' rvhColumns<-list(SubId="SBID",DowSubId="Downstream_ID",rvhName="Name",BasArea="Area")
 #' rvn_rvh_shp_geojson(shpfile=shpfile,rvhfile=rvhfile,
-#' 				   matchingColumns=matchingColumns,
-#' 				   rvhColumns=rvhColumns)
+#'   				   matchingColumns=matchingColumns)
 rvn_rvh_shp_geojson<-function(shpfile,
                               rvhfile,
                               outputfile=sprintf("%s/output.json",getwd()),
                               CRSshp=NA,
-			      matchingColumns=list(shpfile="subid",rvhfile="subid"),
-			      rvhColumns=list(SubId="SBID",DowSubId="Downstream_ID",rvhName="Name",BasArea="Area"),							             
+			      matchingColumns=list(shpfile="subid",rvhfile="SBID"),
 			      outletCoords=list(outletLat=NA,outletLng=NA),
 			      simplifyGeometry=TRUE)
 {
@@ -44,7 +40,6 @@ rvn_rvh_shp_geojson<-function(shpfile,
    suppressPackageStartupMessages(library(raster))
    suppressPackageStartupMessages(library(stringdist))
    suppressPackageStartupMessages(library(rmapshaper))
-
    # checking missing arguments
    if(any(c(missing(shpfile),missing(rvhfile))))
    {
@@ -63,56 +58,11 @@ rvn_rvh_shp_geojson<-function(shpfile,
 
    # read rvh file 
    rvh<-rvn_rvh_read(rvhfile)
+   rvhColumns<-list(SubId="SBID",DowSubId="Downstream_ID",rvhName="Name",BasArea="Area")
    SubId<-rvhColumns$SubId
    DowSubId<-rvhColumns$DowSubId
    rvhName<-rvhColumns$rvhName
    BasArea<-rvhColumns$BasArea
-
-   # Checking the rvh selected columns
-   if(!(SubId %in% colnames(rvh[[1]])))
-   {
-      SubId<-amatch(SubId,colnames(rvh[[1]]),maxDist=10)[1]
-	  if(is.na(SubId)) stop("the provided SubId doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  if(any(is.na(as.numeric(rvh[[1]][,SubId]))))
-      {
-	     stop("the provided SubId doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  }
-	  if(!all(as.numeric(rvh[[1]][,SubId])%%1==0))
-	  {
-	     stop("the provided SubId doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  }
-      warning("The provided SubId column label doesn't exist in the rvh file. The closest column is selected!")
-   }
-   if(!(DowSubId %in% colnames(rvh[[1]])))
-   {
-      DowSubId<-amatch(DowSubId,colnames(rvh[[1]]),maxDist=10)[1]
-	  if(is.na(DowSubId)) stop("the provided DowSubId doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  if(any(is.na(as.numeric(rvh[[1]][,DowSubId]))))
-      {
-	     stop("the provided DowSubId doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  }
-	  if(!all(as.numeric(rvh[[1]][,DowSubId])%%1==0))
-	  {
-	     stop("the provided DowSubId column doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  }
-      warning("The provided DowSubId column label doesn't exist in the rvh file. The closest column is selected!")
-   }
-   if(!(BasArea %in% colnames(rvh[[1]])))
-   {
-      BasArea<-amatch(DowSubId,colnames(rvh[[1]]),maxDist=10)[1]
-	  if(is.na(BasArea)) stop("the provided BasArea column doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  if(any(is.na(as.numeric(rvh[[1]][,BasArea]))))
-      {
-	     stop("the provided BasArea column doesn't exist and there is no similar column in the rvh$SBtable table!")
-	  }
-      warning("The provided BasArea column label doesn't exist in the rvh file. The closest column is selected!")
-   }
-   if(!(rvhName %in% colnames(rvh[[1]])))
-   {
-      rvhName<-amatch(rvhName,colnames(rvh[[1]]),maxDist=10)[1]
-	  if(is.na(rvhName)) stop("the provided rvhName doesn't exist and there is no similar column in the rvh$SBtable table!")
-      warning("The provided DowSubId column label doesn't exist in the rvh file. The closest column is selected!")
-   }
 
    # matching a column from rvh file with a column from shp file
    id<-match(basins@data[,matchingColumns$shpfile],rvh$SBtable[,matchingColumns$rvhfile])
