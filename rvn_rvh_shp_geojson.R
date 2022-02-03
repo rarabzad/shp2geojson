@@ -9,7 +9,7 @@
 #' @param outputfile the full path for the geojson file to be created
 #' @param CRSshp (optional) coordinate system of \code{shpfile} if missing. Throws error if the \code{shpfile} coordinate system is missing and \code{CRSshp} has been left with default
 #' @param matchingColumns a list of matching columns in \code{shpfile} and \code{rvhfile}. The provided sublists must be labeled as \code{list(shpfile="",rvhfile="")}
-#' @param outletCoords (optional) a list of longitude and latitude of the basin outlet. Must be provided in the GCS format and have to be labeld with the following format: \code{list(outletLat=NA,outletLng=NA)}
+#' @param outletCoords (optional) a list of longitude and latitude of the subbasin outlet. Must be provided in the GCS format and have to be labeld with the following format: \code{list(outletLat=NA,outletLng=NA)}
 #' @param simplifyGeometry (optional) Logical: to simplify the polygons in the geojson file or not. Default to \code{TRUE}
 #'
 #' @returns a geojson file
@@ -89,24 +89,31 @@ rvn_rvh_shp_geojson<-function(shpfile,
    if(length(outletId)>1)
    {
       warning("the provided rvh file contains a watershed with more than one outlets. The first matching one is selcted as the outlet!")
-	  outletId<-outletId[1]
    }
+
    outletLat<- outletCoords$outletLat
    outletLng<- outletCoords$outletLng
-   if(any(is.na(c(outletLat,outletLng))))
+   subbasinsIds<-rvh[[1]][,SubId]
+   
+   if(any(all(is.na(outletLat)),all(is.na(outletLng))))
    {
-	  outletLat<-mean(rvh[[2]][rvh[[2]]$SBID==outletId,]$Latitude)
-	  outletLng<-mean(rvh[[2]][rvh[[2]]$SBID==outletId,]$Longitude)
+	  outletLng<-outletLat<-rep(NA,length(subbasinsIds))
+	  for(i in 1:length(subbasinsIds))
+	  {
+	     subWatershed<-rvh[[2]][subbasinsIds[i]==rvh[[2]][,SubId],]
+		 outletLat[i]<-mean(subWatershed$Latitude)
+		 outletLng[i]<-mean(subWatershed$Longitude)
+	  }
 	  warning("Outlet coordinates were not provided. They were calculated by averaging the coordinates of HRUs within the outlet subbasin!")
    }
-   basins@data$outletLat<--9999
-   basins@data$outletLng<--9999
-   outletId<-match(as.numeric(outletId),basins@data$SubId)
-   basins@data$outletLat[outletId]<-outletLat
-   basins@data$outletLng[outletId]<-outletLng
+   basins@data$outletLat<-outletLat[id]
+   basins@data$outletLng<-outletLng[id]
+   basins@data$outletLat[naIds]<--9999
+   basins@data$outletLng[naIds]<--9999
 
    # creating geojson file
    basins_json <- geojson_json(basins)
+   
    if (simplifyGeometry)
    {
       basins_sim <- ms_simplify(basins_json,keep_shapes = TRUE)
@@ -115,4 +122,5 @@ rvn_rvh_shp_geojson<-function(shpfile,
    }
    geojson_write(basins_sim, file = outputfile)
    cat("Successfully Converted!\n")
+   return("Successfully Converted!")
 }
