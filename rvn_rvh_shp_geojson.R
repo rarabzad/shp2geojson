@@ -121,6 +121,6 @@ rvn_rvh_shp_geojson<-function(shpfile,
       basins_sim<-basins_json
    }
    geojson_write(basins_sim, file = outputfile)
-   cat("Successfully Converted!\n")
-   return("Successfully Converted!")
+   out<-ifelse(file.exists(outputfile),"Successfully Converted!","Unsuccessful")
+   return(out)
 }
