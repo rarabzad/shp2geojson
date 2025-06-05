@@ -95,7 +95,7 @@ rvn_rvh_shp_geojson<-function(shpfile,
    outletLng<- outletCoords$outletLng
    outletSBD<- outletCoords$ID
 
-   subbasinsIds<-rvh$SBtable[,SubId]
+   subbasinsIds<-basins@data[,matchingColumns$shpfile]
    
    if(any(all(is.na(outletLat)),all(is.na(outletLng))))
    {
@@ -111,6 +111,8 @@ rvn_rvh_shp_geojson<-function(shpfile,
    }
    outletID<-match(outletSBD,subbasinsIds)
    outletID_matched<-!is.na(outletID)
+   basins@data$outletLat<-rep(NA,nrow(basins@data))
+   basins@data$outletLng<-rep(NA,nrow(basins@data))
    for(i in 1:length(outletID_matched))
    {
       if(outletID_matched[i])
