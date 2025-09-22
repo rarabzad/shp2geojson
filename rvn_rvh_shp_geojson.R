@@ -136,8 +136,10 @@ rvn_rvh_shp_geojson<-function(shpfile,
    }else{
       basins_sim<-basins_json
    }
-   geojson_write(basins_sim, file = outputfile)
+   if(!grepl("\\.geojson$", outputfile, ignore.case = TRUE)) outputfile <- paste0(tools::file_path_sans_ext(outputfile), ".geojson")
+   geojson_write(basins_sim, file = outputfile, overwrite = TRUE, geometry = "polygon")
    out<-ifelse(file.exists(outputfile),"Successfully Converted!","Unsuccessful")
    return(out)
 }
+
 
