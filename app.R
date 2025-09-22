@@ -9,6 +9,7 @@ library(geojsonio)
 library(rmapshaper)
 library(shinyjs)
 library(shinycssloaders)
+library(stringdist)
 
 options(shiny.sanitize.errors = FALSE)
 
@@ -314,5 +315,6 @@ observeEvent(input$convert, {
 }
 
 shinyApp(ui, server)
+
 
 
