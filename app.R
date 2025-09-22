@@ -125,7 +125,9 @@ server <- function(input, output, session) {
         paste0("+proj=utm +zone=", utm_zone, " +datum=NAD83 +units=m +no_defs")
       }
       updateTextInput(session, "CRSshp", value = suggested_crs)
+      st_crs(basins) <- suggested_crs
     }
+
     
     shp_data(basins)
     updateSelectInput(session, "shpcol", choices = colnames(basins), selected = tail(colnames(basins),1))
@@ -148,7 +150,9 @@ server <- function(input, output, session) {
   basins_latlon <- reactive({
     req(shp_data())
     shp <- shp_data()
-    if (!is.na(input$CRSshp) && input$CRSshp != "") st_crs(shp) <- input$CRSshp
+    if (is.na(st_crs(shp)) && !is.null(input$CRSshp) && input$CRSshp != "") {
+      st_crs(shp) <- input$CRSshp
+    }
     st_transform(shp, crs = 4326)
   })
   
@@ -274,4 +278,5 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
 
