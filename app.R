@@ -128,9 +128,12 @@ server <- function(input, output, session) {
         suggested_epsg <- 26900 + utm_zone  # NAD83 UTM
       }
       st_crs(basins) <- suggested_epsg
-      updateTextInput(session, "CRSshp", value = st_crs(suggested_epsg)$proj4string)
+      
+      # Only update CRSshp text box if it is empty
+      if (is.null(input$CRSshp) || input$CRSshp == "") {
+        updateTextInput(session, "CRSshp", value = st_crs(suggested_epsg)$proj4string)
+      }
     }
-    
     shp_data(basins)
     updateSelectInput(session, "shpcol", choices = colnames(basins), selected = tail(colnames(basins),1))
     output$shptable <- renderDT({ datatable(head(basins,10), options=list(scrollX=TRUE)) })
@@ -288,3 +291,4 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
