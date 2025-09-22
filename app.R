@@ -118,15 +118,18 @@ server <- function(input, output, session) {
     
     if (is.na(st_crs(basins))) {
       e <- st_bbox(basins)
-      suggested_crs <- if(all(c(e["xmin"], e["xmax"]) >= -180 & c(e["xmin"], e["xmax"]) <= 180)) {
-        4326  # WGS84
+      if(all(c(e["xmin"], e["xmax"]) >= -180 & c(e["xmin"], e["xmax"]) <= 180)) {
+        suggested_crs <- 4326  # WGS84
       } else {
-        utm_zone <- floor((mean(c(e["xmin"], e["xmax"])) + 180)/6) + 1
-        paste0("+proj=utm +zone=", utm_zone, " +datum=NAD83 +units=m +no_defs")
+        lon_center <- mean(c(e["xmin"], e["xmax"]))
+        utm_zone <- floor((lon_center + 180)/6) + 1
+        utm_zone <- max(min(utm_zone, 60), 1)  
+        suggested_crs <- 26900 + utm_zone      
       }
+      st_crs(basins) <- suggested_crs          
       updateTextInput(session, "CRSshp", value = suggested_crs)
-      st_crs(basins) <- suggested_crs
     }
+
 
     
     shp_data(basins)
@@ -150,9 +153,12 @@ server <- function(input, output, session) {
   basins_latlon <- reactive({
     req(shp_data())
     shp <- shp_data()
-    if (is.na(st_crs(shp)) && !is.null(input$CRSshp) && input$CRSshp != "") {
-      st_crs(shp) <- input$CRSshp
+    if (!is.na(input$CRSshp) && input$CRSshp != "") {
+      try({
+        st_crs(shp) <- input$CRSshp
+      }, silent = TRUE)
     }
+    if (is.na(st_crs(shp))) st_crs(shp) <- 4326
     st_transform(shp, crs = 4326)
   })
   
@@ -278,5 +284,6 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
 
 
