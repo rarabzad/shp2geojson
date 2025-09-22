@@ -285,10 +285,13 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       req(outputfile())
-      file.copy(normalizePath(outputfile(), mustWork = TRUE), file, overwrite = TRUE)
+      if(!file.exists(outputfile())){
+        stop("GeoJSON file not found. Please convert first!")
+      }
+      file.copy(outputfile(), file, overwrite = TRUE)
+      
     }
   )
 }
 
 shinyApp(ui, server)
-
