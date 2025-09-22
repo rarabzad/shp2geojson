@@ -51,8 +51,10 @@ rvn_rvh_shp_geojson<-function(shpfile,
 
    # reading shp file and its projection
    basins <- shapefile(shpfile)
-   if(is.na(crs(basins)@projargs) & is.na(CRSshp)) stop("shapefile's CRS is unknown while CRSshp is missing")
-   if(is.na(crs(basins)@projargs)) crs(basins)<-CRSshp
+   if (is.na(crs(basins)@projargs) || crs(basins)@projargs == "") {
+	  if (is.na(CRSshp) || CRSshp == "") stop("Shapefile CRS unknown and CRSshp missing")
+	  crs(basins) <- CRSshp
+   }
    WGS<-crs("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84")
    basins<-spTransform(basins,CRSobj=WGS)
 
@@ -138,3 +140,4 @@ rvn_rvh_shp_geojson<-function(shpfile,
    out<-ifelse(file.exists(outputfile),"Successfully Converted!","Unsuccessful")
    return(out)
 }
+
