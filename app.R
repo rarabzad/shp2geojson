@@ -115,22 +115,21 @@ server <- function(input, output, session) {
       showNotification("Failed to read shapefile", type = "error")
       return()
     }
-    
     if (is.na(st_crs(basins))) {
       e <- st_bbox(basins)
       if(all(c(e["xmin"], e["xmax"]) >= -180 & c(e["xmin"], e["xmax"]) <= 180)) {
-        suggested_crs <- 4326  # WGS84
+        # WGS84
+        suggested_epsg <- 4326
       } else {
+        # Compute UTM zone, clamp to 1-60
         lon_center <- mean(c(e["xmin"], e["xmax"]))
         utm_zone <- floor((lon_center + 180)/6) + 1
-        utm_zone <- max(min(utm_zone, 60), 1)  
-        suggested_crs <- 26900 + utm_zone      
+        utm_zone <- max(min(utm_zone, 60), 1)
+        suggested_epsg <- 26900 + utm_zone  # NAD83 UTM
       }
-      st_crs(basins) <- suggested_crs          
-      updateTextInput(session, "CRSshp", value = suggested_crs)
+      st_crs(basins) <- suggested_epsg
+      updateTextInput(session, "CRSshp", value = st_crs(suggested_epsg)$proj4string)
     }
-
-
     
     shp_data(basins)
     updateSelectInput(session, "shpcol", choices = colnames(basins), selected = tail(colnames(basins),1))
@@ -153,12 +152,17 @@ server <- function(input, output, session) {
   basins_latlon <- reactive({
     req(shp_data())
     shp <- shp_data()
-    if (!is.na(input$CRSshp) && input$CRSshp != "") {
-      try({
-        st_crs(shp) <- input$CRSshp
-      }, silent = TRUE)
+    if (!is.null(input$CRSshp) && input$CRSshp != "") {
+      # Attempt to set CRS safely
+      crs_try <- try(st_crs(shp) <- input$CRSshp, silent = TRUE)
+      if (inherits(crs_try, "try-error") || is.na(st_crs(shp))) {
+        st_crs(shp) <- 4326
+      }
+    } else if (is.na(st_crs(shp))) {
+      st_crs(shp) <- 4326
     }
-    if (is.na(st_crs(shp))) st_crs(shp) <- 4326
+    
+    # Transform to lat/lon for Leaflet
     st_transform(shp, crs = 4326)
   })
   
@@ -284,6 +288,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
-
-
-
