@@ -178,12 +178,6 @@ install.packages(c("sf","rmapshaper","stringdist","dplyr","shiny","shinythemes",
 
 ---
 
-## Examples (more)
-
-Included in the repo are example ZIP test cases. To replicate the conversion from the command line or R script, use the Quick script example above and substitute the correct `shpfile`, `rvhfile`, and `matchingColumns`.
-
----
-
 ## References
 
 * Chamberlain, S., & Teucher, A. (2018). geojsonio: Convert Data from and to ‘GeoJSON’. CRAN.
