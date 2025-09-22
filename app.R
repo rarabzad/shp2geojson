@@ -79,7 +79,8 @@ server <- function(input, output, session) {
   outlet_coords <- reactiveVal(NULL)
   outputfile <- reactiveVal(NULL)
   unzipped_dir <- reactiveVal(NULL)
-  
+  shinyjs::disable("downloadData")
+
   shinyjs::disable("plot")
   shinyjs::disable("convert")
   
@@ -227,55 +228,76 @@ server <- function(input, output, session) {
     list(ID=ID, outletLat=outletLat, outletLng=outletLng)
   })
   
-  observeEvent(input$convert, {
-    req(shp_data(), rvh_data(), input$shpcol, input$rvhcol)
-    shinyjs::disable("convert")
-    output$conversionmessage <- renderText("Conversion in progress, please wait...")
-    
-    withProgress(message = "Converting files...", value = 0, {
-      incProgress(0.2)
-      
-      # Load conversion function from GitHub
-      source("https://raw.githubusercontent.com/rarabzad/shp2geojson/main/rvn_rvh_shp_geojson.R", local = TRUE)
-      
-      exdir <- unzipped_dir()
-      req(exdir)
-      
-      shpfile_path <- list.files(exdir, pattern = "\\.shp$", full.names = TRUE)[1]
-      req(shpfile_path)
-      
-      output_dir <- dirname(shpfile_path)
-      base_name <- tools::file_path_sans_ext(basename(shpfile_path))
-      out_json_path <- file.path(output_dir, paste0(base_name, ".json"))
-      outputfile(out_json_path)
-      
-      CRSshp_val <- input$CRSshp
-      if (CRSshp_val == "") CRSshp_val <- NA_character_
-      
-      outlet_list <- getOutletCoordsList()
-      incProgress(0.5)
-      
-      res <- tryCatch({
-        rvn_rvh_shp_geojson(shpfile = shpfile_path,
-                            rvhfile = input$rvhfile$datapath,
-                            outputfile = out_json_path,
-                            CRSshp = CRSshp_val,
-                            matchingColumns = list(shpfile = input$shpcol, rvhfile = input$rvhcol),
-                            simplifyGeometry = as.logical(input$simplifyGeometry),
-                            outletCoords = outlet_list)
-      }, error = function(e) e$message)
-      
-      incProgress(1)
-      
-      if (is.character(res) && grepl("^Error|failed|invalid", res, ignore.case = TRUE)) {
-        output$conversionmessage <- renderText(paste("Conversion failed:", res))
-      } else {
-        output$conversionmessage <- renderText("Conversion successful!")
-      }
+observeEvent(input$convert, {
+  req(shp_data(), rvh_data(), input$shpcol, input$rvhcol)
+
+  shinyjs::disable("convert")
+  output$conversionmessage <- renderText("Conversion in progress, please wait...")
+
+  withProgress(message = "Converting files...", value = 0, {
+    incProgress(0.15, detail = "Loading converter...")
+    # (re)load converter function if you source it from GitHub
+    source("https://raw.githubusercontent.com/rarabzad/shp2geojson/main/rvn_rvh_shp_geojson.R", local = TRUE)
+
+    exdir <- unzipped_dir()
+    req(exdir)
+
+    shpfile_path <- list.files(exdir, pattern = "\\.shp$", full.names = TRUE)[1]
+    req(shpfile_path)
+
+    output_dir <- dirname(shpfile_path)
+    base_name <- tools::file_path_sans_ext(basename(shpfile_path))
+    # request .geojson in same folder (converter will still normalize)
+    requested_out <- file.path(output_dir, paste0(base_name, ".geojson"))
+
+    # Prepare CRS argument: convert numeric-only strings to integer EPSG if appropriate
+    CRSshp_val <- input$CRSshp
+    if (!is.null(CRSshp_val) && nzchar(CRSshp_val) && grepl("^\\d+$", CRSshp_val)) {
+      CRSshp_val <- as.integer(CRSshp_val)
+    }
+    if (is.null(CRSshp_val) || CRSshp_val == "") CRSshp_val <- NA
+
+    outlet_list <- getOutletCoordsList()
+
+    incProgress(0.4, detail = "Running converter...")
+    # call the converter (it returns a list: success, file, sf, message)
+    res <- tryCatch({
+      rvn_rvh_shp_geojson(
+        shpfile = shpfile_path,
+        rvhfile = input$rvhfile$datapath,
+        outputfile = requested_out,
+        CRSshp = CRSshp_val,
+        matchingColumns = list(shpfile = input$shpcol, rvhfile = input$rvhcol),
+        simplifyGeometry = if (isTRUE(as.logical(input$simplifyGeometry))) TRUE else as.numeric(input$simplifyGeometry),
+        outletCoords = outlet_list,
+        overwrite = TRUE
+      )
+    }, error = function(e) {
+      list(success = FALSE, file = NULL, sf = NULL, message = e$message)
     })
-    
-    shinyjs::enable("convert")
-  })
+
+    incProgress(1)
+
+    # inspect result and update app state
+    if (is.list(res) && !is.null(res$success) && isTRUE(res$success) && !is.null(res$file) && file.exists(res$file)) {
+      # set the authoritative path to what the converter actually wrote
+      outputfile(normalizePath(res$file))
+      output$conversionmessage <- renderText(paste("Conversion successful:", res$message))
+      showNotification("Conversion successful", type = "message")
+      shinyjs::enable("downloadData")
+    } else {
+      # ensure no stale path stays set
+      outputfile(NULL)
+      shinyjs::disable("downloadData")
+      msg <- if (is.list(res) && !is.null(res$message)) res$message else "Conversion failed (unknown reason)"
+      output$conversionmessage <- renderText(paste("Conversion failed:", msg))
+      showNotification(paste("Conversion failed:", msg), type = "error")
+    }
+  }) # end withProgress
+
+  shinyjs::enable("convert")
+})
+
   
   # Download handler
   output$downloadData <- downloadHandler(
@@ -295,3 +317,4 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
