@@ -184,8 +184,12 @@ server <- function(input, output, session) {
     
     # Match polygons
     values <- match(basins@data[, input$shpcol], RVH$SBtable[, input$rvhcol])
-    message <- sprintf("matching rate: %s percent", round(sum(!is.na(values)) * 100 / nrow(basins), 2))
+    # Safety check: ensure values has the same length as basins
+    if (is.null(values) || length(values) != nrow(basins)) {
+      values <- rep(NA, nrow(basins))
+    }
     col <- ifelse(is.na(values), "red", "green")
+    message <- sprintf("matching rate: %s percent", round(sum(!is.na(values)) * 100 / nrow(basins), 2))
     
     # Prepare leaflet base
     map <- leaflet() %>%
@@ -313,16 +317,18 @@ server <- function(input, output, session) {
   # Download handler
   output$downloadData <- downloadHandler(
     filename = function() {
-      if (is.null(outputfile())) {
+      if (is.null(outputfile()) || !file.exists(outputfile())) {
         return("output.geojson")
       }
       basename(outputfile())
     },
     content = function(file) {
       req(outputfile())
-      file.copy(outputfile(), file)
+      out_path <- normalizePath(outputfile(), mustWork = TRUE)
+      file.copy(out_path, file, overwrite = TRUE)
     }
   )
 }
 
 shinyApp(ui, server)
+
