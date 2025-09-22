@@ -1,145 +1,222 @@
-#' @title Converts a basin shapefile into a geojson 
+#' Convert a basin shapefile and RVH to GeoJSON (robust, sf-based, improved)
 #'
-#' @description
-#' This function compares a basin shapefile with it's Raven compliant rvh file. The function copies a 
-#' number of rvh file columns to the shapefile attribute table based on a provided argument, \code{matchingColumns}. 
+#' This function reads an input basin shapefile and an RVH file (via RavenR::rvn_rvh_read()),
+#' matches subbasin IDs between them (with fuzzy matching fallback), copies selected RVH
+#' attributes to the shapefile attribute table, computes or applies outlet coordinates, optionally
+#' simplifies geometry, and writes a GeoJSON file.
 #'
-#' @param shpfile the full path for the shapefile
-#' @param rvhfile the full path for the rvh file
-#' @param outputfile the full path for the geojson file to be created
-#' @param CRSshp (optional) coordinate system of \code{shpfile} if missing. Throws error if the \code{shpfile} coordinate system is missing and \code{CRSshp} has been left with default
-#' @param matchingColumns a list of matching columns in \code{shpfile} and \code{rvhfile}. The provided sublists must be labeled as \code{list(shpfile="",rvhfile="")}
-#' @param outletCoords (optional) a list of longitude and latitude of the subbasin outlet. Must be provided in the GCS format and have to be labeld with the following format: \code{list(ID=NA, outletLat=NA,outletLng=NA)}
-#' @param simplifyGeometry (optional) Logical: to simplify the polygons in the geojson file or not. Default to \code{TRUE}
-#'
-#' @returns a geojson file
-#'
-#' @seealso \code{\link{rvn_rvh_read}} to read rvh file
-#'
+#' @param shpfile path to basin shapefile (any format readable by sf::st_read)
+#' @param rvhfile path to RVH file (read by RavenR::rvn_rvh_read)
+#' @param outputfile path to output GeoJSON (defaults to ./output.geojson)
+#' @param CRSshp optional PROJ4 or EPSG integer to assign if input shapefile has no CRS
+#' @param matchingColumns list with elements shpfile and rvhfile giving column names to match on
+#' @param outletCoords list with optional elements: ID (vector of SubId to which coords apply), outletLat, outletLng
+#' @param simplifyGeometry logical (or numeric keep fraction). If TRUE uses rmapshaper::ms_simplify(keep = 0.05). If a number in (0,1) uses that as keep.
+#' @param missing_value value used for missing numeric fields (default -9999). Use NA to keep NA.
+#' @param overwrite logical whether to overwrite existing outputfile (default TRUE)
+#' @return A list with: $success (logical), $file (path or NULL), $sf (sf object written), $message
 #' @examples
-#'
-#' data_url<-"https://github.com/rarabzad/shp2geojson/raw/main/test%20cases.zip"
-#' download.file(data_url,destfile = "test cases.zip")
-#' unzip(zipfile="test cases.zip",exdir = "test cases")
-#' shpfile<-"./test cases/Liard/subbasin_20180718.shp"
-#' rvhfile<-"./test cases/Liard/Liard.rvh"
-#' matchingColumns<-list(shpfile="Sub_B",rvhfile="Name")
-#' rvn_rvh_shp_geojson(shpfile=shpfile,rvhfile=rvhfile,
-#'   				   matchingColumns=matchingColumns)
-rvn_rvh_shp_geojson<-function(shpfile,
-                              rvhfile,
-                              outputfile=sprintf("%s/output.json",getwd()),
-                              CRSshp=NA,
-			      matchingColumns=list(shpfile="subid",rvhfile="SBID"),
-			      outletCoords=list(ID=NA, outletLat=NA,outletLng=NA),
-			      simplifyGeometry=TRUE)
-{
-   # loading libraries
-   suppressPackageStartupMessages(library(geojsonio))
-   suppressPackageStartupMessages(library(RavenR))
-   suppressPackageStartupMessages(library(raster))
-   suppressPackageStartupMessages(library(stringdist))
-   suppressPackageStartupMessages(library(rmapshaper))
-   # checking missing arguments
-   if(any(c(missing(shpfile),missing(rvhfile))))
-   {
-      stop ("any ofthe followings: [shpfile, rvhfile] are missing with no default!")
-   }
-   if(!file.exists(shpfile)) stop("shpe file doesn't exist!")
-   if(!file.exists(rvhfile)) stop("rvh file doesn't exist!")
-   if(!dir.exists(gsub(basename(outputfile),"",outputfile))) stop("output directory doesn't exist!")
-
-   # reading shp file and its projection
-   basins <- shapefile(shpfile)
-   if (is.na(crs(basins)@projargs) || crs(basins)@projargs == "") {
-	  if (is.na(CRSshp) || CRSshp == "") stop("Shapefile CRS unknown and CRSshp missing")
-	  crs(basins) <- CRSshp
-   }
-   WGS<-crs("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84")
-   basins<-spTransform(basins,CRSobj=WGS)
-
-   # read rvh file 
-   rvh<-rvn_rvh_read(rvhfile)
-   rvhColumns<-list(SubId="SBID",DowSubId="Downstream_ID",rvhName="Name",BasArea="Area")
-   SubId<-rvhColumns$SubId
-   DowSubId<-rvhColumns$DowSubId
-   rvhName<-rvhColumns$rvhName
-   BasArea<-rvhColumns$BasArea
-
-   # matching a column from rvh file with a column from shp file
-   id<-match(basins@data[,matchingColumns$shpfile],rvh$SBtable[,matchingColumns$rvhfile])
-
-   # preserving non matched subbasins IDs
-   naIds<-is.na(id)
-   id[naIds]<-1
-
-   # finding and removing duplicates columns, if there are/is any
-   id1<-amatch("basinarea",colnames(basins@data)      ,maxDist=10)[1]
-   id2<-amatch("subbasinid",colnames(basins@data)     ,maxDist=10)[1]
-   id3<-amatch("downstreamid",colnames(basins@data)   ,maxDist=10)[1]
-   redundants<-c(id1,id2,id3)
-   redundants<-redundants[!is.na(redundants)]
-   basins@data<-basins@data[,-redundants]
-
-   # copying matched subbasins charactristics from rvh file to shp file
-   basins@data$rvhName <-rvh$SBtable[id,rvhName]     ; if(any(naIds)) basins@data$rvhName[naIds] <--9999
-   basins@data$SubId   <-rvh$SBtable[id,SubId]       ; if(any(naIds)) basins@data$SubId[naIds]   <--9999
-   basins@data$DowSubId<-rvh$SBtable[id,DowSubId]    ; if(any(naIds)) basins@data$DowSubId[naIds]<--9999
-   basins@data$BasArea <-rvh$SBtable[id,BasArea]*10^6; if(any(naIds)) basins@data$BasArea[naIds] <--9999
-
-   outletId<-rvh$SBtable[which(rvh[[1]][,DowSubId]=="-1"),SubId]
-   if(length(outletId)>1)
-   {
-      warning("the provided rvh file contains a watershed with more than one outlets. The first matching one is selcted as the outlet!")
-   }
-
-   outletLat<- outletCoords$outletLat
-   outletLng<- outletCoords$outletLng
-   outletSBD<- outletCoords$ID
-
-   subbasinsIds<-basins@data[,matchingColumns$shpfile]
-   
-   if(any(all(is.na(outletLat)),all(is.na(outletLng))))
-   {
-	  outletLng<-outletLat<-rep(NA,length(subbasinsIds))
-	  for(i in 1:length(subbasinsIds))
-	  {
-	     subWatershed<-rvh[[2]][subbasinsIds[i]==rvh[[2]][,SubId],]
-		 outletLat[i]<-mean(subWatershed$Latitude)
-		 outletLng[i]<-mean(subWatershed$Longitude)
-	  }
-	  outletSBD<- subbasinsIds
-	  warning("Outlet coordinates were not provided. They were calculated by averaging the coordinates of HRUs within the outlet subbasin!")
-   }
-   outletID<-match(outletSBD,subbasinsIds)
-   outletID_matched<-!is.na(outletID)
-   basins@data$outletLat<-rep(NA,nrow(basins@data))
-   basins@data$outletLng<-rep(NA,nrow(basins@data))
-   for(i in 1:length(outletID_matched))
-   {
-      if(outletID_matched[i])
-      {
-         basins@data$outletLat[outletID[i]]<-outletLat[i]
-         basins@data$outletLng[outletID[i]]<-outletLng[i]
-      }else{
-         basins@data$outletLat[outletID[i]]<--9999
-	 basins@data$outletLng[outletID[i]]<--9999
-      }
-   }
-
-   # creating geojson file
-   basins_json <- geojson_json(basins)
-   
-   if (simplifyGeometry)
-   {
-      basins_sim <- ms_simplify(basins_json,keep_shapes = TRUE)
-   }else{
-      basins_sim<-basins_json
-   }
-   if(!grepl("\\.geojson$", outputfile, ignore.case = TRUE)) outputfile <- paste0(tools::file_path_sans_ext(outputfile), ".geojson")
-   geojson_write(basins_sim, file = outputfile, overwrite = TRUE, geometry = "polygon")
-   out<-ifelse(file.exists(outputfile),"Successfully Converted!","Unsuccessful")
-   return(out)
+#' # rvn_rvh_shp_geojson('basins.shp','model.rvh','basins.geojson')
+#' @export
+rvn_rvh_shp_geojson <- function(
+    shpfile,
+    rvhfile,
+    outputfile = file.path(getwd(), "output.geojson"),
+    CRSshp = NA,
+    matchingColumns = list(shpfile = "subid", rvhfile = "SBID"),
+    outletCoords = list(ID = NA, outletLat = NA, outletLng = NA),
+    simplifyGeometry = TRUE,
+    missing_value = -9999,
+    overwrite = TRUE
+) {
+  # ---- Dependencies ----
+  required <- c("sf", "RavenR", "stringdist", "rmapshaper", "dplyr")
+  missing_pkgs <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_pkgs)) {
+    stop("Please install required packages: ", paste(missing_pkgs, collapse = ", "))
+  }
+  # load quietly
+  library(sf)
+  library(RavenR)
+  library(stringdist)
+  library(rmapshaper)
+  library(dplyr)
+  
+  # ---- Basic checks ----
+  if (missing(shpfile) || missing(rvhfile)) stop("Arguments 'shpfile' and 'rvhfile' are required")
+  if (!file.exists(shpfile)) stop("Shapefile does not exist: ", shpfile)
+  if (!file.exists(rvhfile)) stop("RVH file does not exist: ", rvhfile)
+  outdir <- dirname(outputfile)
+  if (!dir.exists(outdir)) stop("Output directory does not exist: ", outdir)
+  if (file.exists(outputfile) && !overwrite) stop("Output file exists and overwrite = FALSE: ", outputfile)
+  
+  # ---- Read shapefile (sf) ----
+  sf_obj <- tryCatch({
+    st_read(shpfile, quiet = TRUE)
+  }, error = function(e) stop("Failed to read shapefile: ", e$message))
+  
+  # assign CRS if missing
+  if (is.na(st_crs(sf_obj))) {
+    if (!is.na(CRSshp)) {
+      st_crs(sf_obj) <- CRSshp
+    } else stop("Input shapefile has no CRS and CRSshp not supplied")
+  }
+  # transform to WGS84
+  sf_obj <- st_transform(sf_obj, crs = 4326)
+  
+  # ---- Read RVH ----
+  rvh <- tryCatch({
+    rvn_rvh_read(rvhfile)
+  }, error = function(e) stop("Failed to read RVH file with RavenR::rvn_rvh_read(): ", e$message))
+  
+  if (!is.data.frame(rvh$SBtable)) stop("Unexpected RVH structure: SBtable missing or not a data.frame")
+  
+  sb_tbl <- rvh$SBtable
+  
+  # ---- Identify columns to match (with fuzzy fallback) ----
+  shp_match_requested <- matchingColumns$shpfile
+  rvh_match_requested <- matchingColumns$rvhfile
+  
+  find_col <- function(want, choices, side = "shp") {
+    if (is.null(want) || is.na(want) || want == "") return(NA_character_)
+    if (want %in% choices) return(want)
+    # try case-insensitive exact match
+    ci <- choices[tolower(choices) == tolower(want)]
+    if (length(ci)) return(ci[1])
+    # fuzzy match via stringdist
+    idx <- amatch(want, choices, maxDist = 3)
+    if (!is.na(idx)) return(choices[idx])
+    # try common fallbacks
+    fallbacks <- list(
+      shp = c("subid", "subbasinid", "id", "gid"),
+      rvh = c("SBID", "SubId", "subid", "ID")
+    )
+    for (f in fallbacks[[side]]) {
+      ci <- choices[tolower(choices) == tolower(f)]
+      if (length(ci)) return(ci[1])
+    }
+    return(NA_character_)
+  }
+  
+  shp_col <- find_col(shp_match_requested, names(sf_obj), side = "shp")
+  rvh_col <- find_col(rvh_match_requested, names(sb_tbl), side = "rvh")
+  
+  if (is.na(shp_col) || is.na(rvh_col)) {
+    stop("Could not determine matching columns. Found shp: ", shp_col, "; rvh: ", rvh_col,
+         ". Please set matchingColumns explicitly to existing column names.")
+  }
+  
+  # coerce both to character for matching
+  sf_obj <- sf_obj %>% mutate(.match_key = as.character(.data[[shp_col]]))
+  sb_tbl[[rvh_col]] <- as.character(sb_tbl[[rvh_col]])
+  
+  # ---- Join attributes ----
+  # select relevant columns from rvh SBtable (keep SubId, Downstream_ID, Name, Area if present)
+  rvh_columns <- c(SubId = rvh_col,
+                   DowSubId = ifelse("Downstream_ID" %in% names(sb_tbl), "Downstream_ID",
+                                     ifelse("DownstreamID" %in% names(sb_tbl), "DownstreamID", NA)),
+                   rvhName = ifelse("Name" %in% names(sb_tbl), "Name", NA),
+                   BasArea = ifelse("Area" %in% names(sb_tbl), "Area", NA))
+  # ensure columns exist
+  rvh_columns <- rvh_columns[!is.na(rvh_columns)]
+  
+  sb_sel <- sb_tbl[, unique(unname(rvh_columns)), drop = FALSE]
+  names(sb_sel)[names(sb_sel) == rvh_col] <- ".match_key"
+  # ensure .match_key in sb_sel
+  sb_sel$.match_key <- as.character(sb_sel$.match_key)
+  
+  # left_join
+  sf_joined <- left_join(sf_obj, sb_sel, by = ".match_key")
+  
+  # replace NA values for numeric fields with missing_value if requested
+  if (!is.na(missing_value)) {
+    num_cols <- sapply(sf_joined, is.numeric)
+    sf_joined[num_cols] <- lapply(sf_joined[num_cols], function(x) ifelse(is.na(x), missing_value, x))
+  }
+  
+  # ---- Outlet coordinates handling ----
+  # Try to build outlet lat/lon per subbasin from rvh HRU table if not provided
+  outlet_IDs <- outletCoords$ID
+  outletLat <- outletCoords$outletLat
+  outletLng <- outletCoords$outletLng
+  
+  # function to extract HRU lat/lon and aggregate by SubId
+  hru_latlon_by_sub <- function(rvh) {
+    # try to find Hru table (commonly rvh[[2]] or rvh$HRUtable)
+    hru <- NULL
+    if (is.data.frame(rvh$HRUtable)) hru <- rvh$HRUtable
+    if (is.data.frame(rvh[[2]]) && is.null(hru)) hru <- rvh[[2]]
+    if (is.null(hru)) return(NULL)
+    # find lat/lon columns
+    lat_col <- find_col("Latitude", names(hru), side = "rvh")
+    lon_col <- find_col("Longitude", names(hru), side = "rvh")
+    id_col <- find_col("SubId", names(hru), side = "rvh")
+    if (any(is.na(c(lat_col, lon_col, id_col)))) return(NULL)
+    hru[[lat_col]] <- as.numeric(as.character(hru[[lat_col]]))
+    hru[[lon_col]] <- as.numeric(as.character(hru[[lon_col]]))
+    agg <- hru %>% group_by(.data[[id_col]]) %>% summarize(outletLat = mean(.data[[lat_col]], na.rm = TRUE),
+                                                           outletLng = mean(.data[[lon_col]], na.rm = TRUE)) %>%
+      ungroup()
+    names(agg)[1] <- ".match_key"
+    agg$.match_key <- as.character(agg$.match_key)
+    agg
+  }
+  
+  hru_agg <- hru_latlon_by_sub(rvh)
+  
+  # prepare outlet table with .match_key
+  outlet_tbl <- NULL
+  if (!all(is.na(outlet_IDs))) {
+    # user provided IDs; match to .match_key
+    outlet_tbl <- data.frame(.match_key = as.character(outlet_IDs), outletLat = outletLat, outletLng = outletLng, stringsAsFactors = FALSE)
+  } else if (!all(is.na(outletLat)) && !all(is.na(outletLng)) && length(outletLat) == nrow(sf_joined)) {
+    # user provided vector aligned to sf rows
+    outlet_tbl <- data.frame(.match_key = sf_joined$.match_key, outletLat = outletLat, outletLng = outletLng, stringsAsFactors = FALSE)
+  } else if (!is.null(hru_agg)) {
+    outlet_tbl <- hru_agg
+  }
+  
+  if (!is.null(outlet_tbl)) {
+    sf_joined <- left_join(sf_joined, outlet_tbl, by = ".match_key")
+    # if missing and missing_value specified, replace
+    if (!is.na(missing_value)) {
+      if (!"outletLat" %in% names(sf_joined)) sf_joined$outletLat <- missing_value
+      if (!"outletLng" %in% names(sf_joined)) sf_joined$outletLng <- missing_value
+      sf_joined$outletLat[is.na(sf_joined$outletLat)] <- missing_value
+      sf_joined$outletLng[is.na(sf_joined$outletLng)] <- missing_value
+    }
+  } else {
+    # no outlet info found -- create columns
+    sf_joined$outletLat <- ifelse(is.na(missing_value), NA_real_, missing_value)
+    sf_joined$outletLng <- ifelse(is.na(missing_value), NA_real_, missing_value)
+    warning("No outlet coordinates could be determined from inputs or RVH HRU table. outletLat/outletLng set to missing_value")
+  }
+  
+  # ---- Optional geometry simplification ----
+  geom_to_write <- sf_joined
+  if (!identical(simplifyGeometry, FALSE)) {
+    if (is.logical(simplifyGeometry) && simplifyGeometry) {
+      geom_to_write <- ms_simplify(sf_joined, keep = 0.05, keep_shapes = TRUE)
+    } else if (is.numeric(simplifyGeometry) && simplifyGeometry > 0 && simplifyGeometry < 1) {
+      geom_to_write <- ms_simplify(sf_joined, keep = simplifyGeometry, keep_shapes = TRUE)
+    }
+  }
+  
+  # ---- Write GeoJSON ----
+  # ensure extension
+  if (!grepl("\\.geojson$", outputfile, ignore.case = TRUE)) {
+    outputfile <- paste0(tools::file_path_sans_ext(outputfile), ".geojson")
+  }
+  
+  # remove existing if overwrite
+  if (file.exists(outputfile) && overwrite) file.remove(outputfile)
+  
+  tryCatch({
+    st_write(geom_to_write, outputfile, driver = "GeoJSON", delete_dsn = overwrite, quiet = TRUE)
+  }, error = function(e) stop("Failed to write GeoJSON: ", e$message))
+  
+  success <- file.exists(outputfile)
+  message <- if (success) "Successfully written GeoJSON" else "Failed to write GeoJSON"
+  
+  return(list(success = success, file = if (success) normalizePath(outputfile) else NULL, sf = geom_to_write, message = message))
 }
-
-
