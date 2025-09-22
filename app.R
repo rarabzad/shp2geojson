@@ -150,6 +150,21 @@ server <- function(input, output, session) {
       showNotification("Failed to read shapefile", type = "error")
       return()
     }
+    shp_crs <- crs(basins)
+    if (is.na(shp_crs@projargs) || shp_crs@projargs == "") {
+      # Compute extent
+      e <- extent(basins)
+      lon_range <- e@xmax - e@xmin
+      lat_range <- e@ymax - e@ymin
+      if (e@xmin >= -180 && e@xmax <= 180 && e@ymin >= -90 && e@ymax <= 90) {
+        suggested_crs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84"
+      } else {
+        centroid_x <- (e@xmin + e@xmax) / 2
+        utm_zone <- floor((centroid_x + 180)/6) + 1
+        suggested_crs <- sprintf("+proj=utm +zone=%s +datum=NAD83 +units=m +no_defs", utm_zone)
+      }
+      updateTextInput(session, "CRSshp", value = suggested_crs)
+    }
     shp_data(basins)
     cols <- colnames(basins@data)
     updateSelectInput(session, "shpcol", choices = cols, selected = tail(cols, 1))
@@ -331,4 +346,5 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
 
