@@ -307,14 +307,12 @@ observeEvent(input$convert, {
     },
     content = function(file) {
       req(outputfile())
-      if(!file.exists(outputfile())){
-        stop("GeoJSON file not found. Please convert first!")
-      }
+      if (!file.exists(outputfile())) stop("GeoJSON file not found. Please convert first!")
       file.copy(outputfile(), file, overwrite = TRUE)
-      
     }
   )
 }
 
 shinyApp(ui, server)
+
 
