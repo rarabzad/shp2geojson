@@ -44,6 +44,7 @@ rvn_rvh_shp_geojson <- function(
   
   # ---- Basic checks ----
   if (missing(shpfile) || missing(rvhfile)) stop("Arguments 'shpfile' and 'rvhfile' are required")
+  
   if (!file.exists(shpfile)) stop("Shapefile does not exist: ", shpfile)
   if (!file.exists(rvhfile)) stop("RVH file does not exist: ", rvhfile)
   outdir <- dirname(outputfile)
@@ -108,21 +109,20 @@ rvn_rvh_shp_geojson <- function(
   
   # coerce both to character for matching
   sf_obj <- sf_obj %>% mutate(.match_key = as.character(.data[[shp_col]]))
+  sf_obj<-sf_obj[,".match_key"]
   sb_tbl[[rvh_col]] <- as.character(sb_tbl[[rvh_col]])
   
   # ---- Join attributes ----
   # select relevant columns from rvh SBtable (keep SubId, Downstream_ID, Name, Area if present)
-  rvh_columns <- c(SubId = rvh_col,
+  rvh_columns <- c(.match_key = rvh_col,
                    DowSubId = ifelse("Downstream_ID" %in% names(sb_tbl), "Downstream_ID",
                                      ifelse("DownstreamID" %in% names(sb_tbl), "DownstreamID", NA)),
                    rvhName = ifelse("Name" %in% names(sb_tbl), "Name", NA),
                    BasArea = ifelse("Area" %in% names(sb_tbl), "Area", NA))
   # ensure columns exist
   rvh_columns <- rvh_columns[!is.na(rvh_columns)]
-  
   sb_sel <- sb_tbl[, unique(unname(rvh_columns)), drop = FALSE]
-  names(sb_sel)[names(sb_sel) == rvh_col] <- ".match_key"
-  # ensure .match_key in sb_sel
+  colnames(sb_sel)<-names(rvh_columns)
   sb_sel$.match_key <- as.character(sb_sel$.match_key)
   
   # left_join
@@ -162,8 +162,7 @@ rvn_rvh_shp_geojson <- function(
     agg
   }
   
-  hru_agg <- hru_latlon_by_sub(rvh)
-  
+
   # prepare outlet table with .match_key
   outlet_tbl <- NULL
   if (!all(is.na(outlet_IDs))) {
@@ -172,8 +171,8 @@ rvn_rvh_shp_geojson <- function(
   } else if (!all(is.na(outletLat)) && !all(is.na(outletLng)) && length(outletLat) == nrow(sf_joined)) {
     # user provided vector aligned to sf rows
     outlet_tbl <- data.frame(.match_key = sf_joined$.match_key, outletLat = outletLat, outletLng = outletLng, stringsAsFactors = FALSE)
-  } else if (!is.null(hru_agg)) {
-    outlet_tbl <- hru_agg
+  } else {
+    outlet_tbl <- hru_latlon_by_sub(rvh)
   }
   
   if (!is.null(outlet_tbl)) {
@@ -201,7 +200,7 @@ rvn_rvh_shp_geojson <- function(
       geom_to_write <- ms_simplify(sf_joined, keep = simplifyGeometry, keep_shapes = TRUE)
     }
   }
-  
+  colnames(geom_to_write)[colnames(geom_to_write)==".match_key"]<-"SubId"
   # ---- Write GeoJSON ----
   # ensure extension
   if (!grepl("\\.geojson$", outputfile, ignore.case = TRUE)) {
