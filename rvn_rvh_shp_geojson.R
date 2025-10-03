@@ -63,8 +63,8 @@ rvn_rvh_shp_geojson <- function(
     } else stop("Input shapefile has no CRS and CRSshp not supplied")
   }
   # transform to WGS84
-  sf_obj <- st_transform(sf_obj, crs = 4326)
-  
+  sf_obj <- st_make_valid(st_transform(sf_obj, crs = 4326))
+
   # ---- Read RVH ----
   rvh <- tryCatch({
     rvn_rvh_read(rvhfile)
@@ -110,6 +110,7 @@ rvn_rvh_shp_geojson <- function(
   # coerce both to character for matching
   sf_obj <- sf_obj %>% mutate(.match_key = as.character(.data[[shp_col]]))
   sf_obj<-sf_obj[,".match_key"]
+  sf_obj$BasArea<-as.vector(st_area(sf_obj))
   sb_tbl[[rvh_col]] <- as.character(sb_tbl[[rvh_col]])
   
   # ---- Join attributes ----
@@ -117,8 +118,7 @@ rvn_rvh_shp_geojson <- function(
   rvh_columns <- c(.match_key = rvh_col,
                    DowSubId = ifelse("Downstream_ID" %in% names(sb_tbl), "Downstream_ID",
                                      ifelse("DownstreamID" %in% names(sb_tbl), "DownstreamID", NA)),
-                   rvhName = ifelse("Name" %in% names(sb_tbl), "Name", NA),
-                   BasArea = ifelse("Area" %in% names(sb_tbl), "Area", NA))
+                   rvhName = ifelse("Name" %in% names(sb_tbl), "Name", NA))
   # ensure columns exist
   rvh_columns <- rvh_columns[!is.na(rvh_columns)]
   sb_sel <- sb_tbl[, unique(unname(rvh_columns)), drop = FALSE]
